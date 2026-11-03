@@ -1,0 +1,35 @@
+# Commit the generated metadata (metadata_gen.go, testmetadata_gen_test.go),
+# testdata/fuzz (fuzz regression inputs) and crap-baseline.json (written by
+# make crap-baseline): none of them are build output.
+
+# Binaries: go build ./internal/cmd/genmetadata at the root, and test binaries
+# from go test -c.
+/genmetadata
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+
+# Coverage and profiles from make cover, make crap and go test -cpuprofile.
+*.out
+*.prof
+*.pprof
+
+# Go workspace files are per developer.
+go.work
+go.work.sum
+
+# Local environment.
+.env
+
+# Editors and operating systems.
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+
+# Claude Code's local session state.
+.claude/

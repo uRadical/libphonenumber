@@ -1,0 +1,8 @@
+uradical.io/go/phonenumber
+Copyright 2026 uRadical
+
+This product is a Go port of libphonenumber
+(https://github.com/google/libphonenumber),
+Copyright (C) The Libphonenumber Authors, licensed under the Apache License,
+Version 2.0. Phone number metadata is derived from the libphonenumber
+resources directory.

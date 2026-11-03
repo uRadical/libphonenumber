@@ -1,0 +1,12 @@
+#!/bin/sh
+# Fast checks before a commit. CI runs the full set: make check.
+set -eu
+
+unformatted=$(gofmt -s -l .)
+if [ -n "$unformatted" ]; then
+	echo "gofmt needed on:" >&2
+	echo "$unformatted" >&2
+	exit 1
+fi
+
+go vet ./...

@@ -1,0 +1,58 @@
+version: "2"
+
+linters:
+  # The standard set includes staticcheck, whose ST1005 check requires
+  # lowercase error strings in errors.New and fmt.Errorf.
+  default: standard
+  enable:
+    - errorlint
+    - forbidigo
+    - gocritic
+    - gosec
+    - misspell
+    - nolintlint
+    - unconvert
+    - usestdlibvars
+  settings:
+    forbidigo:
+      analyze-types: true
+      forbid:
+        # A library has no business writing to stdout or the process log.
+        - pattern: ^(fmt\.Print(|f|ln)|print|println)$
+          msg: a library must not print; return the value or an error
+        - pattern: ^log\.
+          msg: a library must not log; return an error
+    gocritic:
+      enabled-tags: [diagnostic, performance]
+    misspell:
+      locale: US
+      # Upstream uses British spelling, and names ported from it keep it.
+      ignore-rules: [dialling, dialled, normalise, normalised]
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+  exclusions:
+    # metadata_gen.go and testmetadata_gen_test.go carry the standard
+    # "Code generated ... DO NOT EDIT." header.
+    generated: strict
+    rules:
+      # Tests build Numbers from small literals; G115's narrowing warnings
+      # there are noise.
+      - path: _test\.go
+        linters: [gosec]
+        text: G115
+      # fmt.Print is how runnable examples produce their checked output.
+      - path: example_test\.go
+        linters: [forbidigo]
+      # The generator is a build tool: it reads and writes the files it is
+      # given, and reports to the person running it.
+      - path: internal/cmd/
+        linters: [forbidigo, gosec]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    gofmt:
+      simplify: true
