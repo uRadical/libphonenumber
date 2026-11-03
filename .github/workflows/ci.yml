@@ -37,9 +37,14 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      # Build golangci-lint with the job's Go rather than downloading a
+      # release binary. A binary built with an older Go cannot read the
+      # export data a newer patch release writes, and fails type-checking
+      # with "export data version N is greater than maximum supported".
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.13.2
+          install-mode: goinstall
 
   crap:
     runs-on: ubuntu-latest
