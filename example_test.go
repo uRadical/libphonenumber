@@ -66,6 +66,20 @@ func ExampleNumber_UnmarshalText() {
 	// +447912345678 Mobile
 }
 
+func ExampleMatchStrings() {
+	fmt.Println(phonenumber.MatchStrings("+64 3 331 6005", "+64 03 331 6005"))
+	fmt.Println(phonenumber.MatchStrings("+64 3 331 6005", "03 331 6005"))
+	fmt.Println(phonenumber.MatchStrings("+64 3 331 6005", "331 6005"))
+	fmt.Println(phonenumber.MatchStrings("+64 3 331 6005", "+61 3 331 6005"))
+	fmt.Println(phonenumber.MatchStrings("+64 3 331 6005", "Dog"))
+	// Output:
+	// MatchExact
+	// MatchNSN
+	// MatchShortNSN
+	// MatchNone
+	// MatchNotANumber
+}
+
 func ExampleParseAndKeepRawInput() {
 	p, err := phonenumber.ParseAndKeepRawInput("020 7946 0958", "GB")
 	if err != nil {

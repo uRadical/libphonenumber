@@ -227,17 +227,29 @@ func (t *territory) stripNationalPrefixIfPossible(nsn string) (string, string) {
 // newNumber builds a Number from a country calling code and a national
 // significant number of ASCII digits.
 func newNumber(cc int, nsn, ext string) (Number, error) {
+	n, err := newNationalNumber(nsn, ext)
+	if err != nil {
+		return Number{}, err
+	}
+	if cc <= 0 || cc > math.MaxUint16 {
+		// Country calling codes have at most three digits.
+		return Number{}, fmt.Errorf("%w: %d", ErrInvalidCountryCode, cc)
+	}
+	n.countryCode = uint16(cc)
+	return n, nil
+}
+
+// newNationalNumber builds a Number with no country calling code from a
+// national significant number of ASCII digits. Only number matching uses
+// one directly, for a number whose country is unknown; see parseLoose.
+func newNationalNumber(nsn, ext string) (Number, error) {
 	if len(nsn) < minLengthForNSN {
 		return Number{}, errTooShortNSN
 	}
 	if len(nsn) > maxLengthForNSN {
 		return Number{}, fmt.Errorf("%w: national number has more than %d digits", ErrTooLong, maxLengthForNSN)
 	}
-	if cc <= 0 || cc > math.MaxUint16 {
-		// Country calling codes have at most three digits.
-		return Number{}, fmt.Errorf("%w: %d", ErrInvalidCountryCode, cc)
-	}
-	n := Number{countryCode: uint16(cc), zeros: leadingZeros(nsn), ext: ext}
+	n := Number{zeros: leadingZeros(nsn), ext: ext}
 	// At most 17 digits, so this cannot overflow.
 	for i := range len(nsn) {
 		n.national = n.national*10 + uint64(nsn[i]-'0')
