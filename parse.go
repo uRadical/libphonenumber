@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"uradical.io/go/phonenumber/internal/phonetext"
 )
 
 // Errors returned by [Parse]. Each is wrapped with more detail, so test for
@@ -118,21 +120,32 @@ func Parse(s, region string) (Number, error) {
 }
 
 func (ms *metadataSet) parse(s, region string) (Number, error) {
+	p, err := ms.parseRaw(s, region)
+	return p.Number, err
+}
+
+// parseRaw parses s and records how it was written. Raw is left for the
+// caller to set.
+func (ms *metadataSet) parseRaw(s, region string) (Parsed, error) {
 	number, err := extractNumber(s)
 	if err != nil {
-		return Number{}, err
+		return Parsed{}, err
 	}
 	var ext string
 	number, ext = stripExtension(number)
-	cc, nsn, meta, err := ms.splitNumber(number, region)
+	cc, nsn, src, meta, err := ms.splitNumber(number, region)
 	if err != nil {
-		return Number{}, err
+		return Parsed{}, err
 	}
 	if len(nsn) < minLengthForNSN {
-		return Number{}, errTooShortNSN
+		return Parsed{}, errTooShortNSN
 	}
-	nsn = meta.stripNationalPrefixIfPossible(nsn)
-	return newNumber(cc, nsn, ext)
+	nsn, carrier := meta.stripNationalPrefixIfPossible(nsn)
+	n, err := newNumber(cc, nsn, ext)
+	if err != nil {
+		return Parsed{}, err
+	}
+	return Parsed{Number: n, Source: src, CarrierCode: carrier}, nil
 }
 
 var errTooShortNSN = fmt.Errorf("%w: national number has fewer than %d digits", ErrTooShort, minLengthForNSN)
@@ -154,76 +167,89 @@ func extractNumber(s string) (string, error) {
 
 // splitNumber separates number into its country calling code and national
 // number, and returns the metadata to finish parsing it with.
-func (ms *metadataSet) splitNumber(number, region string) (cc int, nsn string, meta *territory, err error) {
+func (ms *metadataSet) splitNumber(number, region string) (cc int, nsn string, src CountryCodeSource, meta *territory, err error) {
 	meta = ms.region(region)
-	if meta == nil && !plusCharsPattern().MatchString(number) {
-		return 0, "", nil, fmt.Errorf("%w: no plus sign and no valid default region", ErrInvalidCountryCode)
+	if meta == nil && !phonetext.PlusCharsPattern().MatchString(number) {
+		return 0, "", 0, nil, fmt.Errorf("%w: no plus sign and no valid default region", ErrInvalidCountryCode)
 	}
-	cc, nsn, err = ms.extractCountryCode(number, meta)
+	cc, nsn, src, err = ms.extractCountryCode(number, meta)
 	if errors.Is(err, ErrInvalidCountryCode) {
-		cc, nsn, err = ms.retryWithoutPlus(number, meta, err)
+		cc, nsn, src, err = ms.retryWithoutPlus(number, meta, err)
 	}
 	if err != nil {
-		return 0, "", nil, err
+		return 0, "", 0, nil, err
 	}
 	if cc == 0 {
 		// No country calling code, so the number is national to region,
 		// which the check above guarantees is valid.
-		return meta.countryCode, normalize(number), meta, nil
+		return meta.countryCode, normalize(number), src, meta, nil
 	}
 	if main := ms.mainRegion(cc); main != region {
 		meta = ms.forCode(cc, main)
 	}
-	return cc, nsn, meta, nil
+	return cc, nsn, src, meta, nil
 }
 
 // retryWithoutPlus handles a number that starts with a plus sign but no
 // known country calling code, in case the plus was a typo: it parses the
 // rest as a national number or one with an international prefix.
-func (ms *metadataSet) retryWithoutPlus(number string, meta *territory, err error) (int, string, error) {
-	loc := plusCharsPattern().FindStringIndex(number)
+func (ms *metadataSet) retryWithoutPlus(number string, meta *territory, err error) (int, string, CountryCodeSource, error) {
+	loc := phonetext.PlusCharsPattern().FindStringIndex(number)
 	if loc == nil {
-		return 0, "", err
+		return 0, "", 0, err
 	}
-	cc, nsn, err := ms.extractCountryCode(number[loc[1]:], meta)
+	cc, nsn, src, err := ms.extractCountryCode(number[loc[1]:], meta)
 	if err != nil {
-		return 0, "", err
+		return 0, "", 0, err
 	}
 	if cc == 0 {
-		return 0, "", fmt.Errorf("%w: cannot read a country calling code after the plus sign", ErrInvalidCountryCode)
+		return 0, "", 0, fmt.Errorf("%w: cannot read a country calling code after the plus sign", ErrInvalidCountryCode)
 	}
-	return cc, nsn, nil
+	return cc, nsn, src, nil
 }
 
-// stripNationalPrefixIfPossible removes the national prefix from nsn,
-// unless that leaves a number too short to be one. t may be nil, for a
-// country calling code with no metadata.
-func (t *territory) stripNationalPrefixIfPossible(nsn string) string {
+// stripNationalPrefixIfPossible removes the national prefix, and any
+// carrier code, from nsn, unless that leaves a number too short to be one.
+// It returns the carrier code it removed. t may be nil, for a country
+// calling code with no metadata.
+func (t *territory) stripNationalPrefixIfPossible(nsn string) (string, string) {
 	if t == nil {
-		return nsn
+		return nsn, ""
 	}
-	stripped, _, _ := t.stripNationalPrefix(nsn)
+	stripped, carrier, _ := t.stripNationalPrefix(nsn)
 	switch t.testLength(stripped, TypeUnknown) {
 	case LengthTooShort, LengthLocalOnly, LengthInvalid:
-		return nsn
+		return nsn, ""
 	}
-	return stripped
+	return stripped, carrier
 }
 
 // newNumber builds a Number from a country calling code and a national
 // significant number of ASCII digits.
 func newNumber(cc int, nsn, ext string) (Number, error) {
+	n, err := newNationalNumber(nsn, ext)
+	if err != nil {
+		return Number{}, err
+	}
+	if cc <= 0 || cc > math.MaxUint16 {
+		// Country calling codes have at most three digits.
+		return Number{}, fmt.Errorf("%w: %d", ErrInvalidCountryCode, cc)
+	}
+	n.countryCode = uint16(cc)
+	return n, nil
+}
+
+// newNationalNumber builds a Number with no country calling code from a
+// national significant number of ASCII digits. Only number matching uses
+// one directly, for a number whose country is unknown; see parseLoose.
+func newNationalNumber(nsn, ext string) (Number, error) {
 	if len(nsn) < minLengthForNSN {
 		return Number{}, errTooShortNSN
 	}
 	if len(nsn) > maxLengthForNSN {
 		return Number{}, fmt.Errorf("%w: national number has more than %d digits", ErrTooLong, maxLengthForNSN)
 	}
-	if cc <= 0 || cc > math.MaxUint16 {
-		// Country calling codes have at most three digits.
-		return Number{}, fmt.Errorf("%w: %d", ErrInvalidCountryCode, cc)
-	}
-	n := Number{countryCode: uint16(cc), zeros: leadingZeros(nsn), ext: ext}
+	n := Number{zeros: leadingZeros(nsn), ext: ext}
 	// At most 17 digits, so this cannot overflow.
 	for i := range len(nsn) {
 		n.national = n.national*10 + uint64(nsn[i]-'0')
@@ -267,7 +293,7 @@ func buildNationalNumberForParsing(s string) (string, error) {
 			b.WriteString(s[start:ctxIdx])
 		}
 	} else {
-		b.WriteString(extractPossibleNumber(s))
+		b.WriteString(phonetext.ExtractPossibleNumber(s))
 	}
 	number := b.String()
 	if i := strings.Index(number, rfc3966IsdnSubaddress); i > 0 {
@@ -289,24 +315,6 @@ func phoneContext(s string, idx int) string {
 
 func validPhoneContext(ctx string) bool {
 	return ctx != "" && (rfc3966GlobalNumber().MatchString(ctx) || rfc3966DomainNameReg().MatchString(ctx))
-}
-
-// extractPossibleNumber trims s to the part that could be a phone number:
-// from the first digit or plus sign, without trailing punctuation, and
-// before any second number such as the "/x" in "650 253 0000/x123".
-func extractPossibleNumber(s string) string {
-	loc := validStartChar().FindStringIndex(s)
-	if loc == nil {
-		return ""
-	}
-	s = s[loc[0]:]
-	if loc := unwantedEndChars().FindStringIndex(s); loc != nil {
-		s = s[:loc[0]]
-	}
-	if loc := secondNumberStart().FindStringIndex(s); loc != nil {
-		s = s[:loc[0]]
-	}
-	return s
 }
 
 var emptyPattern = &pattern{}
@@ -335,11 +343,12 @@ func stripExtension(s string) (number, ext string) {
 
 // extractCountryCode reads the country calling code from the start of
 // number, after any plus sign or international dialling prefix for meta's
-// region. It returns 0 and no error when the number has no country calling
-// code, in which case nsn is meaningless.
-func (ms *metadataSet) extractCountryCode(number string, meta *territory) (cc int, nsn string, err error) {
+// region, and reports how it was written. It returns 0 and no error when
+// the number has no country calling code, in which case nsn is
+// meaningless.
+func (ms *metadataSet) extractCountryCode(number string, meta *territory) (cc int, nsn string, src CountryCodeSource, err error) {
 	if number == "" {
-		return 0, "", nil
+		return 0, "", FromDefaultCountry, nil
 	}
 	var idd *pattern
 	if meta != nil {
@@ -350,18 +359,18 @@ func (ms *metadataSet) extractCountryCode(number string, meta *territory) (cc in
 			idd = emptyPattern
 		}
 	}
-	full, international := stripInternationalPrefix(number, idd)
-	if international {
+	full, src := stripInternationalPrefix(number, idd)
+	if src != FromDefaultCountry {
 		if len(full) <= minLengthForNSN {
-			return 0, "", fmt.Errorf("%w: too few digits follow the prefix", ErrTooShortAfterIDD)
+			return 0, "", 0, fmt.Errorf("%w: too few digits follow the prefix", ErrTooShortAfterIDD)
 		}
 		if cc, nsn := ms.splitCountryCode(full); cc != 0 {
-			return cc, nsn, nil
+			return cc, nsn, src, nil
 		}
-		return 0, "", fmt.Errorf("%w: unknown country calling code", ErrInvalidCountryCode)
+		return 0, "", 0, fmt.Errorf("%w: unknown country calling code", ErrInvalidCountryCode)
 	}
 	if meta == nil {
-		return 0, "", nil
+		return 0, "", src, nil
 	}
 	// The number may start with the default region's country calling code
 	// but no plus sign, as in "44 20 7946 0958" for GB. Strip the code when
@@ -369,15 +378,15 @@ func (ms *metadataSet) extractCountryCode(number string, meta *territory) (cc in
 	ccStr := strconv.Itoa(meta.countryCode)
 	rest, ok := strings.CutPrefix(full, ccStr)
 	if !ok {
-		return 0, "", nil
+		return 0, "", src, nil
 	}
 	rest, _, _ = meta.stripNationalPrefix(rest)
 	general := &meta.generalDesc
 	if (!general.matchesPattern(full) && general.matchesPattern(rest)) ||
 		meta.testLength(full, TypeUnknown) == LengthTooLong {
-		return meta.countryCode, rest, nil
+		return meta.countryCode, rest, FromNumberWithoutPlusSign, nil
 	}
-	return 0, "", nil
+	return 0, "", src, nil
 }
 
 // splitCountryCode reads a known country calling code of one to three
@@ -399,28 +408,30 @@ func (ms *metadataSet) splitCountryCode(full string) (cc int, nsn string) {
 }
 
 // stripInternationalPrefix normalizes number and removes a leading plus
-// sign or international dialling prefix, reporting whether it found one.
-func stripInternationalPrefix(number string, idd *pattern) (string, bool) {
+// sign or international dialling prefix, reporting which it found:
+// FromNumberWithPlusSign, FromNumberWithIDD, or FromDefaultCountry for
+// neither.
+func stripInternationalPrefix(number string, idd *pattern) (string, CountryCodeSource) {
 	if number == "" {
-		return "", false
+		return "", FromDefaultCountry
 	}
-	if loc := plusCharsPattern().FindStringIndex(number); loc != nil {
-		return normalize(number[loc[1]:]), true
+	if loc := phonetext.PlusCharsPattern().FindStringIndex(number); loc != nil {
+		return normalize(number[loc[1]:]), FromNumberWithPlusSign
 	}
 	number = normalize(number)
 	if idd == nil {
-		return number, false
+		return number, FromDefaultCountry
 	}
 	loc := idd.prefixRegexp().FindStringIndex(number)
 	if loc == nil {
-		return number, false
+		return number, FromDefaultCountry
 	}
 	// A zero right after the prefix is a national prefix, not a country
 	// calling code, so the match was not an international prefix after all.
-	if m := capturingDigit().FindStringSubmatch(number[loc[1]:]); len(m) > 1 && normalizeDigits(m[1], false) == "0" {
-		return number, false
+	if m := capturingDigit().FindStringSubmatch(number[loc[1]:]); len(m) > 1 && phonetext.NormalizeDigits(m[1], false) == "0" {
+		return number, FromDefaultCountry
 	}
-	return number[loc[1]:], true
+	return number[loc[1]:], FromNumberWithIDD
 }
 
 // stripNationalPrefix removes the national prefix, and any carrier code,

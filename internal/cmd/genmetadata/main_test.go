@@ -20,16 +20,21 @@ const root = "../../.."
 // them with the committed ones, so a change to resources/ or to the
 // generator without a regenerate fails the tests.
 func TestGeneratedFilesUpToDate(t *testing.T) {
-	for _, tc := range []struct{ in, out, varName string }{
-		{"resources/PhoneNumberMetadata.xml", "metadata_gen.go", "territoryData"},
-		{"resources/PhoneNumberMetadataForTesting.xml", "testmetadata_gen_test.go", "testTerritoryData"},
+	for _, tc := range []struct {
+		in, out, pkg, varName string
+		gen                   func([]byte, string, string, string) ([]byte, error)
+	}{
+		{"resources/PhoneNumberMetadata.xml", "metadata_gen.go", "phonenumber", "territoryData", generate},
+		{"resources/PhoneNumberMetadataForTesting.xml", "testmetadata_gen_test.go", "phonenumber", "testTerritoryData", generate},
+		{"resources/ShortNumberMetadata.xml", "shortnumber/metadata_gen.go", "shortnumber", "territoryData", generateShort},
+		{"resources/PhoneNumberAlternateFormats.xml", "alternateformats_gen.go", "phonenumber", "alternateFormatData", generateAlternate},
 	} {
 		t.Run(tc.out, func(t *testing.T) {
 			raw, err := os.ReadFile(filepath.Join(root, tc.in))
 			if err != nil {
 				t.Fatal(err)
 			}
-			got, err := generate(raw, tc.varName, tc.in)
+			got, err := tc.gen(raw, tc.pkg, tc.varName, tc.in)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -141,7 +146,7 @@ func TestGenerateRejectsBadMetadata(t *testing.T) {
 		{"uncovered local length", `<territory id="XX" countryCode="9">` + general + `<noInternationalDialling><possibleLengths national="5" localOnly="3"/><nationalNumberPattern>\d{5}</nationalNumberPattern></noInternationalDialling><fixedLine><possibleLengths national="4,5"/><nationalNumberPattern>\d{4}</nationalNumberPattern></fixedLine></territory>`, "local-only length 3 not covered"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := generate([]byte(doc(tc.xml)), "data", "test.xml")
+			_, err := generate([]byte(doc(tc.xml)), "phonenumber", "data", "test.xml")
 			if err == nil {
 				t.Fatal("generate succeeded, want an error")
 			}
@@ -304,5 +309,101 @@ func TestSetPossibleLengthsDropsLocalOnlyNationals(t *testing.T) {
 	}
 	if !slices.Equal(got, []int{5, 7}) || !slices.Equal(local, []int{4}) {
 		t.Errorf("setPossibleLengths = %v, %v; want [5 7], [4]", got, local)
+	}
+}
+
+func TestRunShort(t *testing.T) {
+	dir := t.TempDir()
+	in := filepath.Join(dir, "in.xml")
+	out := filepath.Join(dir, "out.go")
+	xml := doc(`<territory id="XX"><generalDesc><nationalNumberPattern>1\d{2}</nationalNumberPattern></generalDesc>
+		<shortCode><possibleLengths national="3"/><exampleNumber>112</exampleNumber><nationalNumberPattern>1\d{2}</nationalNumberPattern></shortCode>
+		<emergency><possibleLengths national="3"/><exampleNumber>112</exampleNumber><nationalNumberPattern>112</nationalNumberPattern></emergency></territory>`)
+	if err := os.WriteFile(in, []byte(xml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"-short", "-pkg", "shortnumber", "-in", in, "-out", out}, io.Discard); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	src, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"package shortnumber", "var territoryData = []*territory{", `"XX"`,
+		`numberDesc{pattern: &pattern{expr: "1\\d{2}"}, lengths: []int8{3}}`,
+		`numberDesc{pattern: &pattern{expr: "112"}, example: "112"}`,
+		`numberDesc{lengths: []int8{-1}}`} {
+		if !bytes.Contains(src, []byte(want)) {
+			t.Errorf("generated source lacks %q:\n%s", want, src)
+		}
+	}
+}
+
+func TestGenerateShortRejectsBadMetadata(t *testing.T) {
+	const general = `<generalDesc><nationalNumberPattern>\d{3}</nationalNumberPattern></generalDesc>`
+	for _, tc := range []struct {
+		name, xml, want string
+	}{
+		{"malformed XML", `<territory`, "XML syntax error"},
+		{"general pattern", `<territory id="XX"><generalDesc><nationalNumberPattern>(</nationalNumberPattern></generalDesc></territory>`, "generalDesc"},
+		{"general lengths", `<territory id="XX"><generalDesc><possibleLengths national="3"/></generalDesc></territory>`, "must not declare"},
+		{"short code lengths", `<territory id="XX">` + general + `<shortCode><possibleLengths national="x"/></shortCode></territory>`, "shortCode"},
+		{"local only", `<territory id="XX">` + general + `<shortCode><possibleLengths national="3" localOnly="2"/></shortCode></territory>`, "local-only"},
+		{"uncovered length", `<territory id="XX">` + general + `<shortCode><possibleLengths national="3"/></shortCode><emergency><possibleLengths national="4"/><nationalNumberPattern>1\d{3}</nationalNumberPattern></emergency></territory>`, "emergency"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := generateShort([]byte(doc(tc.xml)), "shortnumber", "data", "test.xml")
+			if err == nil {
+				t.Fatal("generateShort succeeded, want an error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %q does not mention %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestGenerateAlternate(t *testing.T) {
+	src, err := generateAlternate([]byte(doc(`<territory countryCode="49"><availableFormats>
+		<numberFormat pattern="(\d{3})(\d+)"><leadingDigits>9</leadingDigits><format>$1 $2</format></numberFormat>
+	</availableFormats></territory>`)), "phonenumber", "alt", "test.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"var alt = map[int][]*numberFormat{", "49: {", `format: "$1 $2"`, `leadingDigits: []*pattern{{expr: "9"}}`} {
+		if !bytes.Contains(src, []byte(want)) {
+			t.Errorf("generated source lacks %q:\n%s", want, src)
+		}
+	}
+	for _, tc := range []struct{ name, xml, want string }{
+		{"malformed XML", `<territory`, "XML syntax error"},
+		{"bad country code", `<territory countryCode="x"/>`, "countryCode"},
+		{"repeated country code", `<territory countryCode="49"/><territory countryCode="49"/>`, "repeated"},
+		{"bad pattern", `<territory countryCode="49"><availableFormats><numberFormat pattern="("><format>$1</format></numberFormat></availableFormats></territory>`, "pattern"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := generateAlternate([]byte(doc(tc.xml)), "phonenumber", "alt", "test.xml")
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %v does not mention %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestRunShortAndAlternate(t *testing.T) {
+	if err := run([]string{"-short", "-alternate", "-in", "x", "-out", "y"}, io.Discard); err == nil {
+		t.Error("run with -short and -alternate succeeded")
+	}
+}
+
+func TestRunAlternate(t *testing.T) {
+	dir := t.TempDir()
+	in := filepath.Join(dir, "in.xml")
+	out := filepath.Join(dir, "out.go")
+	if err := os.WriteFile(in, []byte(doc(`<territory countryCode="49"/>`)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"-alternate", "-in", in, "-out", out, "-var", "alt"}, io.Discard); err != nil {
+		t.Fatalf("run: %v", err)
 	}
 }

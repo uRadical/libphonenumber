@@ -6,3 +6,10 @@ This product is a Go port of libphonenumber
 Copyright (C) The Libphonenumber Authors, licensed under the Apache License,
 Version 2.0. Phone number metadata is derived from the libphonenumber
 resources directory.
+Geocoding, carrier and time zone data is derived from the same directory.
+
+The country and region names the geocoder package falls back to are taken
+from the Unicode Common Locale Data Repository (CLDR,
+https://cldr.unicode.org), Copyright (C) 1991-2026 Unicode, Inc., and are
+used under the Unicode License v3 (https://www.unicode.org/license.txt).
+resources/cldr/territories.tsv records the CLDR release they come from.

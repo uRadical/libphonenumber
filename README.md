@@ -149,6 +149,132 @@ literal `+` decodes as a space, so clients must send it as `%2B`.
 If clients send national numbers with a separate country field, bind both as
 strings and call `phonenumber.Parse(phone, country)` yourself.
 
+### Keeping the original input
+
+`ParseAndKeepRawInput` returns a `Parsed`: the `Number`, the input as given,
+how its country calling code was written, and any carrier selection code.
+Store the `Number`; use the `Parsed` to write a number back the way the user
+did:
+
+```go
+p, _ := phonenumber.ParseAndKeepRawInput("020 7946 0958", "GB")
+p.Number                            // +442079460958
+p.FormatInOriginalFormat("GB")      // "020 7946 0958"
+```
+
+`Number` holds no raw input, so `==`, map keys and stored values depend only
+on the number. Other formats:
+
+- `Parsed.FormatOutOfCountryKeepingAlphaChars` keeps letters, as in
+  "0011 1 800 SIX-FLAG".
+- `Number.FormatNationalWithCarrierCode` and
+  `Parsed.FormatNationalWithPreferredCarrierCode` write a carrier selection
+  code, as Brazil and Colombia use.
+- `FormatForMobileDialing` writes a number to dial from a mobile in a given
+  region, or "" if it cannot be dialled from there.
+- `Number.FormatByPattern` formats with your own grouping rules.
+
+### Comparing numbers
+
+`==` tells you two `Number`s are the same. To compare numbers that may be
+written without a country calling code, use `Match`, `MatchString` or
+`MatchStrings`. The result says how sure the match is:
+
+```go
+phonenumber.MatchStrings("+64 3 331 6005", "+64 03 331 6005") // MatchExact
+phonenumber.MatchStrings("+64 3 331 6005", "03 331 6005")     // MatchNSN
+phonenumber.MatchStrings("+64 3 331 6005", "331 6005")        // MatchShortNSN
+phonenumber.MatchStrings("+64 3 331 6005", "+61 3 331 6005")  // MatchNone
+```
+
+`MatchNSN` means the national numbers are the same but one has no country
+calling code, so they may be in different countries. `MatchShortNSN` means
+one could be a shorter form of the other, such as a local number without its
+area code. Larger values are closer matches, so `m >= phonenumber.MatchNSN`
+reads as "the same number".
+
+### Finding numbers in text
+
+`FindNumbers` returns an iterator over the numbers in a piece of text:
+
+```go
+text := "Call us on 020 7946 0958, or +1 650-253-0000 from abroad."
+for m := range phonenumber.FindNumbers(text, "GB") {
+	fmt.Println(m.Raw, m.Number) // "020 7946 0958 +442079460958", ...
+}
+```
+
+`m.Start` and `m.End` are byte offsets, so `text[m.Start:m.End]` is `m.Raw`.
+`FindNumbers` accepts valid numbers only. `FindNumbersWithLeniency` takes a
+`Leniency`, from `LeniencyPossible` to `LeniencyExactGrouping` (which also
+checks the digits are grouped as the region writes them), and a limit on
+failed candidates for text full of false positives.
+
+### Formatting as you type
+
+`AsYouTypeFormatter` formats a number one character at a time, as a dialler
+does:
+
+```go
+f := phonenumber.NewAsYouTypeFormatter("US")
+for _, r := range "6502530000" {
+	fmt.Println(f.InputDigit(r)) // "6", "65", "650", "650-2", ... "(650) 253-0000"
+}
+f.Clear() // before the next number
+```
+
+`InputDigitAndRememberPosition` and `RememberedPosition` track where a
+character ends up as formatting is added around it, for keeping a cursor in
+place. A formatter is not safe for concurrent use.
+
+### Short numbers
+
+Package `shortnumber` covers emergency numbers and service codes such as
+112, 911 or 116 123, from upstream's short-number metadata:
+
+```go
+n, _ := phonenumber.Parse("15", "FR")
+shortnumber.ValidFor(n, "FR")        // true
+shortnumber.ExpectedCostFor(n, "FR") // shortnumber.TollFree
+
+shortnumber.IsEmergency("911", "US")                // true
+shortnumber.IsEmergency("9116666666", "US")         // false
+shortnumber.ConnectsToEmergency("9116666666", "US") // true
+```
+
+Emergency checks take the string as dialled, since "911" reaches the
+emergency services where "+1 911" may not. Functions with a `For` suffix take
+the region the number is dialled from; the others look at every region that
+shares the number's country calling code.
+
+### Where a number is: geocoding, carriers and time zones
+
+Three subpackages carry upstream's prefix data. Each embeds its data, so a
+program pays for it only if it imports the package, and decompresses a
+country's data the first time it looks a number up:
+
+```go
+n, _ := phonenumber.Parse("+44 20 7946 0958", "")
+geocoder.Description(n, "en") // "London"
+timezone.ForNumber(n)         // ["Europe/London"]
+
+m, _ := phonenumber.Parse("+44 7400 123456", "")
+carrier.Name(m, "en")            // "Three"
+carrier.SafeDisplayName(m, "en") // "": the UK has mobile number portability
+```
+
+| Package | Upstream class | Adds to a binary |
+| --- | --- | --- |
+| `geocoder` | `PhoneNumberOfflineGeocoder` | about 2 MB |
+| `carrier` | `PhoneNumberToCarrierMapper` | about 110 KB |
+| `timezone` | `PhoneNumberToTimeZonesMapper` | about 12 KB |
+
+Languages are tags such as `"en"`, `"de-CH"` or `"zh-TW"`. When the geocoder
+has no area for a number, such as a mobile, it gives the country's name,
+which comes from Unicode CLDR for about 100 languages, as upstream's comes
+from Java's locale data. Carrier names can be out of date wherever numbers
+can move between carriers; `SafeDisplayName` returns "" in those regions.
+
 ### Regions
 
 ```go
@@ -163,32 +289,50 @@ phonenumber.SupportedTypes("GB")
 
 ## Status
 
-Ported so far: parsing, validation, number types, possible-length checks and
-formatting, which is upstream's `PhoneNumberUtil` core.
-
-Not yet ported:
-
-- formatting with carrier codes, and keeping the original input
-- comparing two numbers for a match
-- short numbers, such as emergency and service codes
-- the as-you-type formatter
-- finding numbers in text
-- geocoding, carrier and timezone data
+Ported: parsing (with or without the original input), validation,
+number types, possible-length checks, formatting (including carrier codes,
+mobile dialling and custom rules), comparing numbers, finding numbers in
+text (`PhoneNumberMatcher`), formatting as you type (`AsYouTypeFormatter`),
+area code lengths and the other helpers of upstream's `PhoneNumberUtil`, and
+in subpackages short numbers (`ShortNumberInfo`), geocoding
+(`PhoneNumberOfflineGeocoder`), carriers (`PhoneNumberToCarrierMapper`) and
+time zones (`PhoneNumberToTimeZonesMapper`). Every public class of
+upstream's Java library has a Go counterpart, with an API that follows Go
+conventions: `Number` is a comparable value, iterators replace Java's
+`Iterator`, and offsets are byte offsets.
 
 ## Metadata
 
-Numbering plans change every few weeks. The upstream XML lives in
-`resources/`, and `resources/UPSTREAM` records the commit it came from. To
-update it, copy in the new XML and regenerate:
+Numbering plans change every few weeks. The upstream XML and prefix data
+live in `resources/`, and `resources/UPSTREAM` records the commit they came
+from. A scheduled workflow, `upstream-sync`, checks every day for a new
+upstream release. When it finds one, it copies in the data, regenerates, runs
+the tests and opens a pull request. Merging that pull request tags the next
+patch release, so a data update reaches users as, say, v1.4.2 to v1.4.3. Label
+the pull request `release:minor` to bump the minor version instead, or
+`release:skip` to tag nothing. To sync by hand:
 
 ```sh
-go generate ./...
+make sync-upstream          # latest release; or scripts/sync-upstream.sh v9.0.43
 go test ./...
 ```
 
+The sync never moves the data to an older commit than `resources/UPSTREAM`
+records. Set `FORCE=1` to sync anyway.
+
 The generator in `internal/cmd/genmetadata` compiles every pattern with Go's
 `regexp` package, so an expression that RE2 cannot run fails the build
-rather than your program.
+rather than your program. `internal/cmd/genprefixdata` turns the geocoding,
+carrier and time zone text files into the compressed tables the
+subpackages embed, applying upstream's build steps.
+
+The geocoder's country names come from Unicode CLDR. To update them, which
+needs network access:
+
+```sh
+go run ./internal/cmd/fetchcldr -tag 48.2.3 -out resources/cldr/territories.tsv
+go generate ./...
+```
 
 ## Development
 
@@ -205,11 +349,13 @@ make mutants         # mutation testing with gremlins (not in CI)
 - **CRAP:** every function must score under 30, which weighs cyclomatic
   complexity against missing test coverage. Only generated files are exempt.
 - **Fuzzing:** the targets cover parsing, formatting round trips, the
-  Java-style group replacement, normalization and number extraction.
+  Java-style group replacement, normalization, number extraction, matching,
+  finding numbers in text, formatting as you type, emergency numbers and the
+  data lookups.
   Inputs the fuzzer finds go in `testdata/fuzz` and run with every
   `go test`.
-- **Generated code:** the generator's tests regenerate both metadata files
-  and fail if they differ from the committed ones.
+- **Generated code:** the generators' tests regenerate every metadata file
+  and data table and fail if they differ from the committed ones.
 
 CI runs the same Makefile targets, with every action pinned to a commit
 SHA, and Dependabot keeps the actions current.

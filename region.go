@@ -33,13 +33,7 @@ func RegionsForCountryCode(cc int) []string {
 // a region, such as "0" for "GB", or "" if the region has none or is
 // unknown.
 func NationalPrefix(region string) string {
-	t := defaultSet().region(strings.ToUpper(region))
-	if t == nil {
-		return ""
-	}
-	// Upstream marks a pause for a second dial tone with "~"; it is not a
-	// digit to dial.
-	return strings.ReplaceAll(t.nationalPrefix, "~", "")
+	return defaultSet().nationalPrefix(strings.ToUpper(region))
 }
 
 // ExampleNumber returns an example number of type typ for a region. It
@@ -138,4 +132,33 @@ func (t *territory) supportedTypes() []Type {
 		}
 	}
 	return types
+}
+
+// CountryCodes returns every country calling code this package has
+// numbering plans for, geographical or not, sorted.
+func CountryCodes() []int {
+	return slices.Sorted(maps.Keys(defaultSet().regionsForCode))
+}
+
+// NonGeoCountryCodes returns the country calling codes of
+// non-geographical entities, such as 800 for international freephone,
+// sorted.
+func NonGeoCountryCodes() []int {
+	return slices.Sorted(maps.Keys(defaultSet().nonGeo))
+}
+
+// SupportedTypesForNonGeo returns the number types a non-geographical
+// country calling code has, or nil if cc is not one.
+func SupportedTypesForNonGeo(cc int) []Type {
+	t := defaultSet().nonGeo[cc]
+	if t == nil {
+		return nil
+	}
+	return t.supportedTypes()
+}
+
+// IsNANPA reports whether region is in the North American Numbering Plan,
+// the regions that share country calling code 1.
+func IsNANPA(region string) bool {
+	return defaultSet().isNANPA(strings.ToUpper(region))
 }

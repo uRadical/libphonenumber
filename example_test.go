@@ -65,3 +65,69 @@ func ExampleNumber_UnmarshalText() {
 	// Output:
 	// +447912345678 Mobile
 }
+
+func ExampleMatchStrings() {
+	fmt.Println(phonenumber.MatchStrings("+64 3 331 6005", "+64 03 331 6005"))
+	fmt.Println(phonenumber.MatchStrings("+64 3 331 6005", "03 331 6005"))
+	fmt.Println(phonenumber.MatchStrings("+64 3 331 6005", "331 6005"))
+	fmt.Println(phonenumber.MatchStrings("+64 3 331 6005", "+61 3 331 6005"))
+	fmt.Println(phonenumber.MatchStrings("+64 3 331 6005", "Dog"))
+	// Output:
+	// MatchExact
+	// MatchNSN
+	// MatchShortNSN
+	// MatchNone
+	// MatchNotANumber
+}
+
+func ExampleParseAndKeepRawInput() {
+	p, err := phonenumber.ParseAndKeepRawInput("020 7946 0958", "GB")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println(p.Number)
+	fmt.Println(p.Source)
+	fmt.Println(p.FormatInOriginalFormat("GB"))
+	// Output:
+	// +442079460958
+	// FromDefaultCountry
+	// 020 7946 0958
+}
+
+func ExampleNumber_FormatForMobileDialing() {
+	n, _ := phonenumber.Parse("+44 20 7946 0958", "")
+	fmt.Println(n.FormatForMobileDialing("GB", false))
+	fmt.Println(n.FormatForMobileDialing("US", true))
+	// Output:
+	// 02079460958
+	// +44 20 7946 0958
+}
+
+func ExampleFindNumbers() {
+	text := "Call us on 020 7946 0958, or +1 650-253-0000 from abroad."
+	for m := range phonenumber.FindNumbers(text, "GB") {
+		fmt.Println(m.Raw, m.Number)
+	}
+	// Output:
+	// 020 7946 0958 +442079460958
+	// +1 650-253-0000 +16502530000
+}
+
+func ExampleAsYouTypeFormatter() {
+	f := phonenumber.NewAsYouTypeFormatter("US")
+	for _, r := range "6502530000" {
+		fmt.Println(f.InputDigit(r))
+	}
+	// Output:
+	// 6
+	// 65
+	// 650
+	// 650-2
+	// 650-25
+	// 650-253
+	// 650-2530
+	// (650) 253-00
+	// (650) 253-000
+	// (650) 253-0000
+}
