@@ -50,12 +50,14 @@ crap: cover
 crap-baseline: cover
 	go run github.com/padiazg/go-crap@v0.5.1 scan ./... $(CRAP_FLAGS) --coverage-profile=$(COVERAGE) -f json -o crap-baseline.json --no-progress
 
-# Fuzz every target in turn. CI gives each 30s; run longer after changing the
-# parser: make fuzz FUZZTIME=10m.
+# Fuzz every target in every package in turn. CI gives each 30s; run longer
+# after changing the parser: make fuzz FUZZTIME=10m.
 fuzz:
-	@for target in $$(go test -list '^Fuzz' . | grep '^Fuzz'); do \
-		echo "fuzzing $$target for $(FUZZTIME)"; \
-		go test -run '^$$' -fuzz "^$$target\$$" -fuzztime=$(FUZZTIME) . || exit 1; \
+	@for pkg in $$(go list ./...); do \
+		for target in $$(go test -list '^Fuzz' $$pkg | grep '^Fuzz'); do \
+			echo "fuzzing $$pkg $$target for $(FUZZTIME)"; \
+			go test -run '^$$' -fuzz "^$$target\$$" -fuzztime=$(FUZZTIME) $$pkg || exit 1; \
+		done; \
 	done
 
 # Regenerate the metadata after updating resources/.
