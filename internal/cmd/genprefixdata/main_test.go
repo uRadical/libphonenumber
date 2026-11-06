@@ -41,7 +41,10 @@ func readTable(t *testing.T, path string) string {
 // without a regenerate fails the tests. Comparing the decompressed text
 // keeps the test independent of the compressor's output.
 func TestGeneratedDataUpToDate(t *testing.T) {
-	for _, tc := range []struct{ in, out string }{} {
+	for _, tc := range []struct{ in, out string }{
+		{"resources/geocoding", "geocoder/data"},
+		{"resources/test/geocoding", "geocoder/testdata/geocoding"},
+	} {
 		t.Run(tc.out, func(t *testing.T) {
 			tables, err := generate(os.DirFS(filepath.Join(root, tc.in)))
 			if err != nil {
@@ -68,7 +71,9 @@ func TestGeneratedDataUpToDate(t *testing.T) {
 	for _, tc := range []struct {
 		in, out string
 		read    func([]byte) (mapping, error)
-	}{} {
+	}{
+		{"resources/cldr/territories.tsv", "geocoder/names.gz", parseNames},
+	} {
 		t.Run(tc.out, func(t *testing.T) {
 			raw, err := os.ReadFile(filepath.Join(root, tc.in))
 			if err != nil {

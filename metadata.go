@@ -9,6 +9,9 @@ import (
 //go:generate go run ./internal/cmd/genmetadata -in resources/PhoneNumberMetadata.xml -out metadata_gen.go -var territoryData
 //go:generate go run ./internal/cmd/genmetadata -in resources/PhoneNumberMetadataForTesting.xml -out testmetadata_gen_test.go -var testTerritoryData
 //go:generate go run ./internal/cmd/genmetadata -alternate -in resources/PhoneNumberAlternateFormats.xml -out alternateformats_gen.go -var alternateFormatData
+//go:generate go run ./internal/cmd/genprefixdata -in resources/geocoding -out geocoder/data
+//go:generate go run ./internal/cmd/genprefixdata -in resources/test/geocoding -out geocoder/testdata/geocoding
+//go:generate go run ./internal/cmd/genprefixdata -names -in resources/cldr/territories.tsv -out geocoder/names.gz
 //go:generate go run ./internal/cmd/genmetadata -short -pkg shortnumber -in resources/ShortNumberMetadata.xml -out shortnumber/metadata_gen.go -var territoryData
 
 // regionNonGeo is the region code upstream uses for non-geographical
