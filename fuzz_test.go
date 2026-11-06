@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"uradical.io/go/phonenumber/internal/phonetext"
 )
 
 // FuzzParse checks that Parse never panics, and that a valid number
@@ -118,7 +120,7 @@ func FuzzNormalize(f *testing.F) {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
-		for _, got := range []string{normalize(s), normalizeDigits(s, false)} {
+		for _, got := range []string{normalize(s), phonetext.NormalizeDigits(s, false)} {
 			if !allDigits(got) {
 				t.Fatalf("normalize(%q) = %q, which is not all ASCII digits", s, got)
 			}
@@ -136,16 +138,16 @@ func FuzzExtractNumber(f *testing.F) {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
-		number := extractPossibleNumber(s)
+		number := phonetext.ExtractPossibleNumber(s)
 		if !strings.Contains(s, number) {
-			t.Fatalf("extractPossibleNumber(%q) = %q, not part of the input", s, number)
+			t.Fatalf("phonetext.ExtractPossibleNumber(%q) = %q, not part of the input", s, number)
 		}
 		rest, ext := stripExtension(number)
 		if !strings.HasPrefix(number, rest) {
 			t.Fatalf("stripExtension(%q) = %q, not a prefix of the input", number, rest)
 		}
 		for _, r := range ext {
-			if digitValue(r) < 0 {
+			if phonetext.DigitValue(r) < 0 {
 				t.Fatalf("stripExtension(%q) extension %q has a non-digit", number, ext)
 			}
 		}

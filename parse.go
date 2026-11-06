@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"uradical.io/go/phonenumber/internal/phonetext"
 )
 
 // Errors returned by [Parse]. Each is wrapped with more detail, so test for
@@ -156,7 +158,7 @@ func extractNumber(s string) (string, error) {
 // number, and returns the metadata to finish parsing it with.
 func (ms *metadataSet) splitNumber(number, region string) (cc int, nsn string, meta *territory, err error) {
 	meta = ms.region(region)
-	if meta == nil && !plusCharsPattern().MatchString(number) {
+	if meta == nil && !phonetext.PlusCharsPattern().MatchString(number) {
 		return 0, "", nil, fmt.Errorf("%w: no plus sign and no valid default region", ErrInvalidCountryCode)
 	}
 	cc, nsn, err = ms.extractCountryCode(number, meta)
@@ -181,7 +183,7 @@ func (ms *metadataSet) splitNumber(number, region string) (cc int, nsn string, m
 // known country calling code, in case the plus was a typo: it parses the
 // rest as a national number or one with an international prefix.
 func (ms *metadataSet) retryWithoutPlus(number string, meta *territory, err error) (int, string, error) {
-	loc := plusCharsPattern().FindStringIndex(number)
+	loc := phonetext.PlusCharsPattern().FindStringIndex(number)
 	if loc == nil {
 		return 0, "", err
 	}
@@ -267,7 +269,7 @@ func buildNationalNumberForParsing(s string) (string, error) {
 			b.WriteString(s[start:ctxIdx])
 		}
 	} else {
-		b.WriteString(extractPossibleNumber(s))
+		b.WriteString(phonetext.ExtractPossibleNumber(s))
 	}
 	number := b.String()
 	if i := strings.Index(number, rfc3966IsdnSubaddress); i > 0 {
@@ -289,24 +291,6 @@ func phoneContext(s string, idx int) string {
 
 func validPhoneContext(ctx string) bool {
 	return ctx != "" && (rfc3966GlobalNumber().MatchString(ctx) || rfc3966DomainNameReg().MatchString(ctx))
-}
-
-// extractPossibleNumber trims s to the part that could be a phone number:
-// from the first digit or plus sign, without trailing punctuation, and
-// before any second number such as the "/x" in "650 253 0000/x123".
-func extractPossibleNumber(s string) string {
-	loc := validStartChar().FindStringIndex(s)
-	if loc == nil {
-		return ""
-	}
-	s = s[loc[0]:]
-	if loc := unwantedEndChars().FindStringIndex(s); loc != nil {
-		s = s[:loc[0]]
-	}
-	if loc := secondNumberStart().FindStringIndex(s); loc != nil {
-		s = s[:loc[0]]
-	}
-	return s
 }
 
 var emptyPattern = &pattern{}
@@ -404,7 +388,7 @@ func stripInternationalPrefix(number string, idd *pattern) (string, bool) {
 	if number == "" {
 		return "", false
 	}
-	if loc := plusCharsPattern().FindStringIndex(number); loc != nil {
+	if loc := phonetext.PlusCharsPattern().FindStringIndex(number); loc != nil {
 		return normalize(number[loc[1]:]), true
 	}
 	number = normalize(number)
@@ -417,7 +401,7 @@ func stripInternationalPrefix(number string, idd *pattern) (string, bool) {
 	}
 	// A zero right after the prefix is a national prefix, not a country
 	// calling code, so the match was not an international prefix after all.
-	if m := capturingDigit().FindStringSubmatch(number[loc[1]:]); len(m) > 1 && normalizeDigits(m[1], false) == "0" {
+	if m := capturingDigit().FindStringSubmatch(number[loc[1]:]); len(m) > 1 && phonetext.NormalizeDigits(m[1], false) == "0" {
 		return number, false
 	}
 	return number[loc[1]:], true

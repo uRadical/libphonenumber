@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"uradical.io/go/phonenumber/internal/phonetext"
 )
 
 // Tests ported from upstream's PhoneNumberUtilTest.java, run against the
@@ -76,8 +78,8 @@ func TestNormaliseOtherDigits(t *testing.T) {
 
 func TestNormaliseStripAlphaCharacters(t *testing.T) {
 	in, want := "034-56&+a#234", "03456234"
-	if got := normalizeDigits(in, false); got != want {
-		t.Errorf("normalizeDigits(%q, false) = %q, want %q", in, got, want)
+	if got := phonetext.NormalizeDigits(in, false); got != want {
+		t.Errorf("phonetext.NormalizeDigits(%q, false) = %q, want %q", in, got, want)
 	}
 }
 
@@ -152,8 +154,8 @@ func TestExtractPossibleNumber(t *testing.T) {
 		{"(650) 253-0000\u200F", "650) 253-0000"},
 	}
 	for _, tt := range tests {
-		if got := extractPossibleNumber(tt.in); got != tt.want {
-			t.Errorf("extractPossibleNumber(%q) = %q, want %q", tt.in, got, tt.want)
+		if got := phonetext.ExtractPossibleNumber(tt.in); got != tt.want {
+			t.Errorf("phonetext.ExtractPossibleNumber(%q) = %q, want %q", tt.in, got, tt.want)
 		}
 	}
 }

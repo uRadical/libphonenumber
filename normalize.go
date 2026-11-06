@@ -5,25 +5,23 @@ import (
 	"strings"
 	"sync"
 	"unicode"
+
+	"uradical.io/go/phonenumber/internal/phonetext"
 )
 
 const (
-	plusChars = `+\x{FF0B}`
+	plusChars = phonetext.PlusChars
 	// validPunctuation lists the characters allowed between the digits of a
 	// phone number, for use inside a character class.
 	validPunctuation = `\-x\x{2010}-\x{2015}\x{2212}\x{30FC}\x{FF0D}-\x{FF0F} \x{00A0}\x{00AD}\x{200B}\x{2060}\x{3000}()\x{FF08}\x{FF09}\x{FF3B}\x{FF3D}.\[\]/~\x{2053}\x{223C}\x{FF5E}`
-	digits           = `\p{Nd}`
+	digits           = phonetext.Digits
 	validAlpha       = "A-Za-z"
 )
 
 // The package's own expressions compile on first use, so importing the
 // package costs nothing until a number is parsed or formatted.
 var (
-	plusCharsPattern  = lazyRegexp(`^[` + plusChars + `]+`)
 	separatorPattern  = lazyRegexp(`[` + validPunctuation + `]+`)
-	validStartChar    = lazyRegexp(`[` + plusChars + digits + `]`)
-	unwantedEndChars  = lazyRegexp(`[^\p{N}\p{L}#]+$`)
-	secondNumberStart = lazyRegexp(`[\\/] *x`)
 	validAlphaPhone   = lazyRegexp(`^(?:.*?[A-Za-z]){3}.*$`)
 	capturingDigit    = lazyRegexp(`(` + digits + `)`)
 	singleIntlPrefix  = lazyRegexp(`^[\d]+(?:[~\x{2053}\x{223C}\x{FF5E}][\d]+)?$`)
@@ -50,39 +48,6 @@ var alphaPhoneMappings = func() map[rune]rune {
 	return m
 }()
 
-// digitValue returns the value of a Unicode decimal digit, or -1.
-func digitValue(r rune) int {
-	if '0' <= r && r <= '9' {
-		return int(r - '0')
-	}
-	if r < 0x80 || !unicode.Is(unicode.Nd, r) {
-		return -1
-	}
-	// Unicode encodes every set of decimal digits as a run from zero to
-	// nine, and sets that sit side by side each start on a zero, so a
-	// digit's value is the count of digits before it in its run, modulo 10.
-	before := 0
-	for unicode.Is(unicode.Nd, r-rune(before)-1) {
-		before++
-	}
-	return before % 10
-}
-
-// normalizeDigits converts every decimal digit in s to ASCII, dropping
-// everything else unless keepNonDigits is set.
-func normalizeDigits(s string, keepNonDigits bool) string {
-	var b strings.Builder
-	b.Grow(len(s))
-	for _, r := range s {
-		if d := digitValue(r); d >= 0 {
-			b.WriteByte("0123456789"[d])
-		} else if keepNonDigits {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
-
 // normalize reduces a number to its digits. A number with at least three
 // letters, such as 1-800-FLOWERS, has its letters converted to keypad
 // digits, and only ASCII characters are kept.
@@ -90,7 +55,7 @@ func normalize(s string) string {
 	if validAlphaPhone().MatchString(s) {
 		return mapChars(s, alphaPhoneMappings)
 	}
-	return normalizeDigits(s, false)
+	return phonetext.NormalizeDigits(s, false)
 }
 
 // mapChars replaces each character of s found in m, after upper-casing it,
