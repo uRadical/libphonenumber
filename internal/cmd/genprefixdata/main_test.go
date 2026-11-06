@@ -44,6 +44,8 @@ func TestGeneratedDataUpToDate(t *testing.T) {
 	for _, tc := range []struct{ in, out string }{
 		{"resources/geocoding", "geocoder/data"},
 		{"resources/test/geocoding", "geocoder/testdata/geocoding"},
+		{"resources/carrier", "carrier/data"},
+		{"resources/test/carrier", "carrier/testdata/carrier"},
 	} {
 		t.Run(tc.out, func(t *testing.T) {
 			tables, err := generate(os.DirFS(filepath.Join(root, tc.in)))
