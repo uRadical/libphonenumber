@@ -33,13 +33,7 @@ func RegionsForCountryCode(cc int) []string {
 // a region, such as "0" for "GB", or "" if the region has none or is
 // unknown.
 func NationalPrefix(region string) string {
-	t := defaultSet().region(strings.ToUpper(region))
-	if t == nil {
-		return ""
-	}
-	// Upstream marks a pause for a second dial tone with "~"; it is not a
-	// digit to dial.
-	return strings.ReplaceAll(t.nationalPrefix, "~", "")
+	return defaultSet().nationalPrefix(strings.ToUpper(region))
 }
 
 // ExampleNumber returns an example number of type typ for a region. It

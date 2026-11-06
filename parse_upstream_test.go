@@ -207,27 +207,27 @@ func TestMaybeStripInternationalPrefix(t *testing.T) {
 	tests := []struct {
 		in      string
 		want    string
-		wantIDD bool // Upstream's FROM_NUMBER_WITH_IDD or _WITH_PLUS_SIGN.
+		wantSrc CountryCodeSource
 	}{
 		// The dash is removed by normalization.
-		{"0034567700-3898003", "45677003898003", true},
+		{"0034567700-3898003", "45677003898003", FromNumberWithIDD},
 		// Once stripped, there is no prefix left.
-		{"45677003898003", "45677003898003", false},
-		{"00945677003898003", "45677003898003", true},
+		{"45677003898003", "45677003898003", FromDefaultCountry},
+		{"00945677003898003", "45677003898003", FromNumberWithIDD},
 		// The prefix may be broken up by spaces.
-		{"00 9 45677003898003", "45677003898003", true},
+		{"00 9 45677003898003", "45677003898003", FromNumberWithIDD},
 		// The plus sign is stripped too.
-		{"+45677003898003", "45677003898003", true},
+		{"+45677003898003", "45677003898003", FromNumberWithPlusSign},
 		// No country calling code starts with 0, so a prefix followed by
 		// one is not stripped.
-		{"0090112-3123", "00901123123", false},
+		{"0090112-3123", "00901123123", FromDefaultCountry},
 		// Even when the 0 is separated from the prefix by a space.
-		{"009 0-112-3123", "00901123123", false},
+		{"009 0-112-3123", "00901123123", FromDefaultCountry},
 	}
 	for _, tt := range tests {
-		got, found := stripInternationalPrefix(tt.in, idd)
-		if got != tt.want || found != tt.wantIDD {
-			t.Errorf("stripInternationalPrefix(%q, %q) = %q, %t, want %q, %t", tt.in, idd.expr, got, found, tt.want, tt.wantIDD)
+		got, src := stripInternationalPrefix(tt.in, idd)
+		if got != tt.want || src != tt.wantSrc {
+			t.Errorf("stripInternationalPrefix(%q, %q) = %q, %v, want %q, %v", tt.in, idd.expr, got, src, tt.want, tt.wantSrc)
 		}
 	}
 }
@@ -239,35 +239,36 @@ func TestMaybeExtractCountryCode(t *testing.T) {
 		in      string
 		wantCC  int
 		wantNSN string // Checked only when wantCC is not 0.
+		wantSrc CountryCodeSource
 	}{
-		{"011112-3456789", 1, "123456789"},
-		{"+6423456789", 64, "23456789"},
-		{"+80012345678", 800, "12345678"},
+		{"011112-3456789", 1, "123456789", FromNumberWithIDD},
+		{"+6423456789", 64, "23456789", FromNumberWithPlusSign},
+		{"+80012345678", 800, "12345678", FromNumberWithPlusSign},
 		// No international prefix.
-		{"2345-6789", 0, ""},
+		{"2345-6789", 0, "", FromDefaultCountry},
 		// The country calling code of the region, without a plus sign.
-		{"(1 610) 619 4466", 1, "6106194466"},
+		{"(1 610) 619 4466", 1, "6106194466", FromNumberWithoutPlusSign},
 		// The number is invalid once the uncertain country calling code is
 		// removed.
-		{"(1 610) 619 446", 0, ""},
+		{"(1 610) 619 446", 0, "", FromDefaultCountry},
 		// Too short both with and without the uncertain country calling
 		// code.
-		{"(1 610) 619", 0, ""},
+		{"(1 610) 619", 0, "", FromDefaultCountry},
 	}
 	for _, tt := range tests {
-		cc, nsn, err := testSet().extractCountryCode(tt.in, meta)
+		cc, nsn, src, err := testSet().extractCountryCode(tt.in, meta)
 		if err != nil {
 			t.Errorf("extractCountryCode(%q, US) failed: %v", tt.in, err)
 			continue
 		}
-		if cc != tt.wantCC || (cc != 0 && nsn != tt.wantNSN) {
-			t.Errorf("extractCountryCode(%q, US) = %d, %q, want %d, %q", tt.in, cc, nsn, tt.wantCC, tt.wantNSN)
+		if cc != tt.wantCC || (cc != 0 && nsn != tt.wantNSN) || src != tt.wantSrc {
+			t.Errorf("extractCountryCode(%q, US) = %d, %q, %v, want %d, %q, %v", tt.in, cc, nsn, src, tt.wantCC, tt.wantNSN, tt.wantSrc)
 		}
 	}
 
 	// No valid country calling code follows the prefix.
 	in := "0119991123456789"
-	if cc, nsn, err := testSet().extractCountryCode(in, meta); !errors.Is(err, ErrInvalidCountryCode) {
+	if cc, nsn, _, err := testSet().extractCountryCode(in, meta); !errors.Is(err, ErrInvalidCountryCode) {
 		t.Errorf("extractCountryCode(%q, US) = %d, %q, %v, want error %v", in, cc, nsn, err, ErrInvalidCountryCode)
 	}
 }

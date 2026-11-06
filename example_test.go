@@ -65,3 +65,27 @@ func ExampleNumber_UnmarshalText() {
 	// Output:
 	// +447912345678 Mobile
 }
+
+func ExampleParseAndKeepRawInput() {
+	p, err := phonenumber.ParseAndKeepRawInput("020 7946 0958", "GB")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println(p.Number)
+	fmt.Println(p.Source)
+	fmt.Println(p.FormatInOriginalFormat("GB"))
+	// Output:
+	// +442079460958
+	// FromDefaultCountry
+	// 020 7946 0958
+}
+
+func ExampleNumber_FormatForMobileDialing() {
+	n, _ := phonenumber.Parse("+44 20 7946 0958", "")
+	fmt.Println(n.FormatForMobileDialing("GB", false))
+	fmt.Println(n.FormatForMobileDialing("US", true))
+	// Output:
+	// 02079460958
+	// +44 20 7946 0958
+}
