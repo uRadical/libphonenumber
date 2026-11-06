@@ -113,3 +113,21 @@ func ExampleFindNumbers() {
 	// 020 7946 0958 +442079460958
 	// +1 650-253-0000 +16502530000
 }
+
+func ExampleAsYouTypeFormatter() {
+	f := phonenumber.NewAsYouTypeFormatter("US")
+	for _, r := range "6502530000" {
+		fmt.Println(f.InputDigit(r))
+	}
+	// Output:
+	// 6
+	// 65
+	// 650
+	// 650-2
+	// 650-25
+	// 650-253
+	// 650-2530
+	// (650) 253-00
+	// (650) 253-000
+	// (650) 253-0000
+}
