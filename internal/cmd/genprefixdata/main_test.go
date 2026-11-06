@@ -74,6 +74,8 @@ func TestGeneratedDataUpToDate(t *testing.T) {
 		in, out string
 		read    func([]byte) (mapping, error)
 	}{
+		{"resources/timezones/map_data.txt", "timezone/data/map_data.gz", parse},
+		{"resources/test/timezones/map_data.txt", "timezone/testdata/map_data.gz", parse},
 		{"resources/cldr/territories.tsv", "geocoder/names.gz", parseNames},
 	} {
 		t.Run(tc.out, func(t *testing.T) {

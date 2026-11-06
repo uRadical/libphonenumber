@@ -14,6 +14,8 @@ import (
 //go:generate go run ./internal/cmd/genprefixdata -names -in resources/cldr/territories.tsv -out geocoder/names.gz
 //go:generate go run ./internal/cmd/genprefixdata -in resources/carrier -out carrier/data
 //go:generate go run ./internal/cmd/genprefixdata -in resources/test/carrier -out carrier/testdata/carrier
+//go:generate go run ./internal/cmd/genprefixdata -single -in resources/timezones/map_data.txt -out timezone/data/map_data.gz
+//go:generate go run ./internal/cmd/genprefixdata -single -in resources/test/timezones/map_data.txt -out timezone/testdata/map_data.gz
 //go:generate go run ./internal/cmd/genmetadata -short -pkg shortnumber -in resources/ShortNumberMetadata.xml -out shortnumber/metadata_gen.go -var territoryData
 
 // regionNonGeo is the region code upstream uses for non-geographical
