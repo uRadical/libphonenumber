@@ -27,6 +27,7 @@ func TestGeneratedFilesUpToDate(t *testing.T) {
 		{"resources/PhoneNumberMetadata.xml", "metadata_gen.go", "phonenumber", "territoryData", generate},
 		{"resources/PhoneNumberMetadataForTesting.xml", "testmetadata_gen_test.go", "phonenumber", "testTerritoryData", generate},
 		{"resources/ShortNumberMetadata.xml", "shortnumber/metadata_gen.go", "shortnumber", "territoryData", generateShort},
+		{"resources/PhoneNumberAlternateFormats.xml", "alternateformats_gen.go", "phonenumber", "alternateFormatData", generateAlternate},
 	} {
 		t.Run(tc.out, func(t *testing.T) {
 			raw, err := os.ReadFile(filepath.Join(root, tc.in))

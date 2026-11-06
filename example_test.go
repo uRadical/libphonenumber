@@ -103,3 +103,13 @@ func ExampleNumber_FormatForMobileDialing() {
 	// 02079460958
 	// +44 20 7946 0958
 }
+
+func ExampleFindNumbers() {
+	text := "Call us on 020 7946 0958, or +1 650-253-0000 from abroad."
+	for m := range phonenumber.FindNumbers(text, "GB") {
+		fmt.Println(m.Raw, m.Number)
+	}
+	// Output:
+	// 020 7946 0958 +442079460958
+	// +1 650-253-0000 +16502530000
+}
