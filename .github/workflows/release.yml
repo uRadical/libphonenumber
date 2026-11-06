@@ -1,0 +1,40 @@
+name: release
+
+# Creates a GitHub release for a version tag pushed by hand, such as the
+# first release or one with new features, with notes generated from the
+# pull requests merged since the last tag.
+#
+# Releases for metadata updates come from upstream-release instead. It
+# creates its tags with the workflow token, which does not trigger other
+# workflows, so this one does not run for them; the check below covers a
+# release that already exists anyway.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$TAG already has a release"
+            exit 0
+          fi
+          prerelease=
+          case "$TAG" in
+            *-*) prerelease=--prerelease ;; # v1.2.0-rc.1
+          esac
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --generate-notes $prerelease
+
+      # Ask the module proxy for the new version so it is available, and
+      # listed on pkg.go.dev, straight away rather than on first request.
+      - continue-on-error: true
+        run: curl -sSf "https://proxy.golang.org/uradical.io/go/phonenumber/@v/$TAG.info"
