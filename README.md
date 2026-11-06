@@ -305,12 +305,20 @@ conventions: `Number` is a comparable value, iterators replace Java's
 
 Numbering plans change every few weeks. The upstream XML and prefix data
 live in `resources/`, and `resources/UPSTREAM` records the commit they came
-from. To update them, copy in upstream's `resources/` files and regenerate:
+from. A scheduled workflow, `upstream-sync`, checks every day for a new
+upstream release. When it finds one, it copies in the data, regenerates, runs
+the tests and opens a pull request. Merging that pull request tags the next
+patch release, so a data update reaches users as, say, v1.4.2 to v1.4.3. Label
+the pull request `release:minor` to bump the minor version instead, or
+`release:skip` to tag nothing. To sync by hand:
 
 ```sh
-go generate ./...
+make sync-upstream          # latest release; or scripts/sync-upstream.sh v9.0.43
 go test ./...
 ```
+
+The sync never moves the data to an older commit than `resources/UPSTREAM`
+records. Set `FORCE=1` to sync anyway.
 
 The generator in `internal/cmd/genmetadata` compiles every pattern with Go's
 `regexp` package, so an expression that RE2 cannot run fails the build

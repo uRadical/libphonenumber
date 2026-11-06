@@ -1,0 +1,100 @@
+name: upstream-sync
+
+# Checks every day for a new libphonenumber release. When there is one, it
+# copies in its resources/, regenerates, runs the tests and opens a pull
+# request. A release that breaks the generator or the tests still gets a
+# pull request, as a draft that says so, and the run fails.
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Upstream tag to sync, such as v9.0.43 (default latest)
+        required: false
+      force:
+        description: Sync even if the tag is not newer than resources/UPSTREAM
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: upstream-sync
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      # Pull requests opened with the default GITHUB_TOKEN do not trigger
+      # other workflows, so ci would not run on them. A fine-grained token
+      # or GitHub App token in UPSTREAM_SYNC_TOKEN, with contents and pull
+      # requests write access, makes ci run. Without one the sync still
+      # works, and its own test step below is the only check.
+      GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - id: sync
+        env:
+          TAG: ${{ inputs.tag }}
+          FORCE: ${{ inputs.force && '1' || '' }}
+        run: |
+          tag=$(scripts/sync-upstream.sh $TAG)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [ -n "$tag" ] && git ls-remote --exit-code --heads origin "upstream-sync/$tag" >/dev/null; then
+            echo "upstream-sync/$tag already exists; its pull request is open or was closed on purpose"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - id: test
+        if: steps.sync.outputs.tag != ''
+        continue-on-error: true
+        run: make vet test
+
+      - if: steps.sync.outputs.tag != ''
+        env:
+          TAG: ${{ steps.sync.outputs.tag }}
+          PASSED: ${{ steps.test.outcome == 'success' }}
+        run: |
+          branch="upstream-sync/$TAG"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add -A
+          git commit -q -m "Update metadata to libphonenumber $TAG" \
+            -m "Copied from https://github.com/google/libphonenumber/releases/tag/$TAG and regenerated."
+          git push -q origin "$branch"
+
+          {
+            echo "Updates \`resources/\` to libphonenumber [$TAG](https://github.com/google/libphonenumber/releases/tag/$TAG) and regenerates the derived files."
+            echo
+            if [ "$PASSED" = true ]; then
+              echo "\`make vet test\` passed."
+            else
+              echo "**\`make vet test\` failed** on this release; see the [sync run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID). The upstream change probably needs a code change here too."
+            fi
+            echo
+            echo '```'
+            git diff --stat HEAD~1 -- resources/ | tail -n 1
+            echo '```'
+            echo
+            echo "Merging this tags the next patch release (see \`upstream-release.yml\`). Label it \`release:minor\` for a minor release instead, or \`release:skip\` for none."
+          } > "$RUNNER_TEMP/body.md"
+
+          draft=
+          [ "$PASSED" = true ] || draft=--draft
+          gh pr create $draft --base "${{ github.event.repository.default_branch }}" --head "$branch" \
+            --title "Update metadata to libphonenumber $TAG" --body-file "$RUNNER_TEMP/body.md"
+
+      - if: steps.test.outcome == 'failure'
+        run: |
+          echo "::error::make vet test failed after syncing ${{ steps.sync.outputs.tag }}; a draft pull request is open."
+          exit 1

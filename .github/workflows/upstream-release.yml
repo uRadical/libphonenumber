@@ -1,0 +1,75 @@
+name: upstream-release
+
+# Tags a release when an upstream-sync pull request is merged, so the
+# updated metadata reaches users through the module proxy. Data-only
+# changes are a patch release, v1.2.3 to v1.2.4. Labels on the pull
+# request change that: release:minor bumps the minor version, for a sync
+# that needed code changes users should notice, and release:skip tags
+# nothing.
+#
+# It continues from the highest vX.Y.Z tag, so the first release has to be
+# tagged by hand.
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+# Two merges in a row must not both pick the same next version.
+concurrency:
+  group: upstream-release
+
+jobs:
+  release:
+    if: >-
+      github.event.pull_request.merged &&
+      startsWith(github.event.pull_request.head.ref, 'upstream-sync/') &&
+      !contains(github.event.pull_request.labels.*.name, 'release:skip')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HEAD_REF: ${{ github.event.pull_request.head.ref }}
+      SHA: ${{ github.event.pull_request.merge_commit_sha }}
+      PR: ${{ github.event.pull_request.number }}
+      MINOR: ${{ contains(github.event.pull_request.labels.*.name, 'release:minor') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - id: version
+        run: |
+          last=$(git tag -l 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
+          if [ -z "$last" ]; then
+            echo "::error::No vX.Y.Z tag to continue from; tag the first release by hand."
+            exit 1
+          fi
+          IFS=. read -r major minor patch <<< "${last#v}"
+          if [ "$MINOR" = true ]; then
+            next="v$major.$((minor + 1)).0"
+          else
+            next="v$major.$minor.$((patch + 1))"
+          fi
+          echo "Releasing $next (after $last) at $SHA"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+
+      - env:
+          NEXT: ${{ steps.version.outputs.next }}
+        run: |
+          upstream=${HEAD_REF#upstream-sync/}
+          {
+            echo "Numbering-plan, geocoding, carrier and time zone data updated to libphonenumber [$upstream](https://github.com/google/libphonenumber/releases/tag/$upstream)."
+            echo
+            echo "See #$PR for the change."
+          } > "$RUNNER_TEMP/notes.md"
+          gh release create "$NEXT" --target "$SHA" \
+            --title "$NEXT: libphonenumber $upstream metadata" --notes-file "$RUNNER_TEMP/notes.md"
+
+      # Ask the module proxy for the new version so it is available, and
+      # listed on pkg.go.dev, straight away rather than on first request.
+      - continue-on-error: true
+        env:
+          NEXT: ${{ steps.version.outputs.next }}
+        run: curl -sSf "https://proxy.golang.org/uradical.io/go/phonenumber/@v/$NEXT.info"

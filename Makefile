@@ -8,7 +8,7 @@ COVERAGE   := coverage.out
 CRAP_FLAGS := --exclude '.*_gen(_test)?\.go' --threshold 30
 FUZZTIME   ?= 30s
 
-.PHONY: all check fmt vet test lint vuln cover crap crap-baseline fuzz generate bench mutants install-hooks clean
+.PHONY: all check fmt vet test lint vuln cover crap crap-baseline fuzz generate sync-upstream bench mutants install-hooks clean
 
 all: fmt check
 
@@ -63,6 +63,11 @@ fuzz:
 # Regenerate the metadata after updating resources/.
 generate:
 	go generate ./...
+
+# Copy resources/ from upstream's latest release and regenerate. CI runs this
+# daily and opens a pull request; see .github/workflows/upstream-sync.yml.
+sync-upstream:
+	scripts/sync-upstream.sh
 
 bench:
 	go test -run '^$$' -bench=. -benchmem -benchtime=200ms -count=10 ./...
